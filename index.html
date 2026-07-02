@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DIFFY - Comparador de Word</title>
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background-color: #f3f4f6; 
+            color: #333; 
+            margin: 0; 
+            padding: 40px; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+        }
+        .container { 
+            background: white; 
+            padding: 30px; 
+            border-radius: 10px; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
+            width: 100%; 
+            max-width: 600px; 
+        }
+        h1 { 
+            text-align: center; 
+            color: #2563eb; 
+            margin-bottom: 5px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #6b7280;
+            margin-bottom: 25px;
+            font-size: 0.95em;
+        }
+        .file-input { 
+            margin-bottom: 20px; 
+        }
+        label { 
+            display: block; 
+            font-weight: bold; 
+            margin-bottom: 8px; 
+            color: #4b5563;
+        }
+        input[type="file"] { 
+            display: block; 
+            width: 100%; 
+            padding: 10px; 
+            border: 1px solid #d1d5db; 
+            border-radius: 5px; 
+            box-sizing: border-box;
+            background-color: #f9fafb;
+        }
+        button { 
+            width: 100%; 
+            background-color: #2563eb; 
+            color: white; 
+            border: none; 
+            padding: 14px; 
+            font-size: 16px; 
+            font-weight: bold;
+            border-radius: 5px; 
+            cursor: pointer; 
+            transition: background 0.3s; 
+            margin-top: 10px;
+        }
+        button:hover { 
+            background-color: #1d4ed8; 
+        }
+        button:disabled { 
+            background-color: #9ca3af; 
+            cursor: not-allowed; 
+        }
+        #status { 
+            margin-top: 20px; 
+            text-align: center; 
+            font-weight: bold; 
+            color: #059669; 
+        }
+        .error { 
+            color: #dc2626; 
+        }
+    </style>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/5.2.0/diff.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/docx@7.8.2/build/index.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 DIFFY</h1>
+        <p class="subtitle">Sube las dos versiones de tu documento para generar un nuevo Word con las adiciones resaltadas.</p>
+        
+        <div class="file-input">
+            <label for="fileOld">📄 Documento Viejo (.docx)</label>
+            <input type="file" id="fileOld" accept=".docx">
+        </div>
+        
+        <div class="file-input">
+            <label for="fileNew">📄 Documento Nuevo (.docx)</label>
+            <input type="file" id="fileNew" accept=".docx">
+        </div>
+
+        <button id="btnGenerate">Generar y Descargar Comparación</button>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        document.getElementById('btnGenerate').addEventListener('click', async () => {
+            const fileOld = document.getElementById('fileOld').files[0];
+            const fileNew = document.getElementById('fileNew').files[0];
+            const statusDiv = document.getElementById('status');
+
+            // 1. Verificaciones de seguridad
+            if (!window.mammoth || !window.Diff || !window.docx) {
+                statusDiv.innerHTML = '<span class="error">Error: Las librerías no cargaron. Por favor, revisa tu conexión a internet.</span>';
+                return;
+            }
+
+            if (!fileOld || !fileNew) {
+                statusDiv.innerHTML = '<span class="error">Por favor, sube ambos documentos (.docx).</span>';
+                return;
+            }
+
+            statusDiv.innerHTML = '⏳ Extrayendo texto de los documentos...';
+            document.getElementById('btnGenerate').disabled = true;
+
+            try {
+                // 2. Extraer texto
+                const textOld = await extractText(fileOld);
+                const textNew = await extractText(fileNew);
+
+                // 3. Comparar
+                statusDiv.innerHTML = '⏳ Comparando versiones (esto puede tomar unos segundos)...';
+                // Permitimos que el navegador actualice el texto antes de bloquearse procesando
+                await new Promise(resolve => setTimeout(resolve, 50)); 
+                
+                const differences = window.Diff.diffWords(textOld, textNew);
+
+                // 4. Construir Word
+                statusDiv.innerHTML = '⏳ Construyendo documento final...';
+                await generateDocx(differences);
+
+                statusDiv.innerHTML = '✅ ¡Documento generado y descargado con éxito!';
+            } catch (error) {
+                console.error("Error completo:", error);
+                statusDiv.innerHTML = `<span class="error">Error: ${error.message}</span>`;
+            } finally {
+                document.getElementById('btnGenerate').disabled = false;
+            }
+        });
+
+        // Función para extraer texto con Mammoth
+        function extractText(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    const arrayBuffer = event.target.result;
+                    window.mammoth.extractRawText({ arrayBuffer: arrayBuffer })
+                        .then(result => resolve(result.value))
+                        .catch(err => reject(new Error("No se pudo leer el archivo Word. ¿Estás seguro que es un .docx válido?")));
+                };
+                reader.onerror = () => reject(new Error("Error al intentar leer el archivo en el navegador."));
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        // Función para armar el documento con Docx
+        async function generateDocx(differences) {
+            const { Document, Packer, Paragraph, TextRun } = window.docx;
+
+            const docxParagraphs = [];
+            let currentRuns = [];
+
+            differences.forEach(token => {
+                if (token.removed) return; // Omitimos lo borrado
+
+                // Separar por saltos de línea para mantener párrafos
+                const lines = token.value.split('\n');
+                
+                for (let i = 0; i < lines.length; i++) {
+                    if (i > 0) {
+                        docxParagraphs.push(new Paragraph({ children: currentRuns }));
+                        currentRuns = [];
+                    }
+                    
+                    if (lines[i].length > 0) {
+                        let runOptions = { text: lines[i] };
+                        
+                        // Si es adición, aplicar highlight amarillo
+                        if (token.added) {
+                            runOptions.highlight = "yellow";
+                        }
+                        
+                        currentRuns.push(new TextRun(runOptions));
+                    }
+                }
+            });
+
+            if (currentRuns.length > 0) {
+                docxParagraphs.push(new Paragraph({ children: currentRuns }));
+            }
+
+            const doc = new Document({
+                sections: [{
+                    properties: {},
+                    children: docxParagraphs,
+                }],
+            });
+
+            const blob = await Packer.toBlob(doc);
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'DIFFY_Resultado_Comparacion.docx';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>
