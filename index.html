@@ -1,10 +1,9 @@
-<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DIFFY - Comparador de Word</title>
-    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="icon" type="image/png" href="favicon.png"><!DOCTYPE html>
     <style>
         body { 
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
@@ -44,7 +43,7 @@
             margin-bottom: 8px; 
             color: #4b5563;
         }
-        input[type="file"] { 
+        input[type="file"], select { 
             display: block; 
             width: 100%; 
             padding: 10px; 
@@ -52,6 +51,12 @@
             border-radius: 5px; 
             box-sizing: border-box;
             background-color: #f9fafb;
+            font-family: inherit;
+            font-size: 15px;
+        }
+        select:focus, input[type="file"]:focus {
+            outline: none;
+            border-color: #2563eb;
         }
         button { 
             width: 100%; 
@@ -91,7 +96,7 @@
 <body>
     <div class="container">
         <h1>🔍 DIFFY</h1>
-        <p class="subtitle">Sube las dos versiones de tu documento para generar un nuevo Word con las adiciones resaltadas.</p>
+        <p class="subtitle">Sube las dos versiones de tu documento para generar un nuevo Word con las adiciones marcadas.</p>
         
         <div class="file-input">
             <label for="fileOld">📄 Documento Viejo (.docx)</label>
@@ -103,6 +108,17 @@
             <input type="file" id="fileNew" accept=".docx">
         </div>
 
+        <div class="file-input">
+            <label for="styleOption">🎨 ¿Cómo marcar las adiciones?</label>
+            <select id="styleOption">
+                <option value="highlight">Fondo Resaltado Amarillo</option>
+                <option value="gray_highlight">Fondo Resaltado Gris Claro</option>
+                <option value="underline">Texto Subrayado</option>
+                <option value="both">Ambos (Amarillo y Subrayado)</option>
+                <option value="gray_both">Ambos (Gris Claro y Subrayado)</option>
+            </select>
+        </div>
+
         <button id="btnGenerate">Generar y Descargar Comparación</button>
         <div id="status"></div>
     </div>
@@ -111,6 +127,7 @@
         document.getElementById('btnGenerate').addEventListener('click', async () => {
             const fileOld = document.getElementById('fileOld').files[0];
             const fileNew = document.getElementById('fileNew').files[0];
+            const styleOption = document.getElementById('styleOption').value;
             const statusDiv = document.getElementById('status');
 
             // 1. Verificaciones de seguridad
@@ -141,7 +158,7 @@
 
                 // 4. Construir Word
                 statusDiv.innerHTML = '⏳ Construyendo documento final...';
-                await generateDocx(differences);
+                await generateDocx(differences, styleOption);
 
                 statusDiv.innerHTML = '✅ ¡Documento generado y descargado con éxito!';
             } catch (error) {
@@ -168,7 +185,7 @@
         }
 
         // Función para armar el documento con Docx
-        async function generateDocx(differences) {
+        async function generateDocx(differences, styleOption) {
             const { Document, Packer, Paragraph, TextRun } = window.docx;
 
             const docxParagraphs = [];
@@ -189,9 +206,22 @@
                     if (lines[i].length > 0) {
                         let runOptions = { text: lines[i] };
                         
-                        // Si es adición, aplicar highlight amarillo
+                        // Aplicar estilos según lo elegido por el usuario
                         if (token.added) {
-                            runOptions.highlight = "yellow";
+                            // Opciones de fondo (Amarillo vs Gris Claro)
+                            if (styleOption === 'highlight' || styleOption === 'both') {
+                                runOptions.highlight = "yellow";
+                            } else if (styleOption === 'gray_highlight' || styleOption === 'gray_both') {
+                                runOptions.highlight = "lightGray"; // Gris claro nativo de Word
+                            }
+
+                            // Opciones de subrayado
+                            if (styleOption === 'underline' || styleOption === 'both' || styleOption === 'gray_both') {
+                                runOptions.underline = {
+                                    type: "single",
+                                    color: "000000"
+                                };
+                            }
                         }
                         
                         currentRuns.push(new TextRun(runOptions));
